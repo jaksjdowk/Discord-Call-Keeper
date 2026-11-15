@@ -1,3 +1,4 @@
+
 import { Client, GatewayIntentBits, ActivityType, Events } from "discord.js";
 import { getVoiceConnection, VoiceConnectionStatus } from "@discordjs/voice";
 import { loadConfig } from "./config";
@@ -11,23 +12,21 @@ async function main() {
 
   const config = loadConfig();
 
-  // Create Discord client with required intents
   const client = new Client({
     intents: [
       GatewayIntentBits.Guilds,
       GatewayIntentBits.GuildVoiceStates,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.MessageContent,
     ],
   });
 
   const voiceKeeper = new VoiceCallKeeper(client, config.guildId, config.channelId);
-
-  // Start HTTP server immediately so Render health checks and UptimeRobot pass during boot
   const server = startHttpServer(config.port, client, voiceKeeper);
 
   client.once(Events.ClientReady, async (readyClient) => {
     console.log(`[Bot] Logged in as ${readyClient.user.tag}!`);
 
-    // Set custom bot presence
     readyClient.user.setPresence({
       activities: [
         {
@@ -38,7 +37,6 @@ async function main() {
       status: "online",
     });
 
-    // Start voice keeper connection
     await voiceKeeper.start();
   });
 
@@ -46,77 +44,57 @@ async function main() {
     console.error("[Bot Error]", err);
   });
 
-  // Fast sub-second recovery if the bot is kicked or moved to another channel (e.g. AFK)
   client.on(Events.VoiceStateUpdate, (oldState, newState) => {
     if (newState.id !== client.user?.id) return;
 
     if (!newState.channelId) {
-      // Only handle true external disconnects when not in the middle of connecting
       if (oldState.channelId && !voiceKeeper.isConnectingState) {
-        console.warn(
-          "[Voice State] Bot was disconnected from voice channel by user/server! Triggering immediate reconnect..."
-        );
+        console.warn("[Voice State] Bot disconnected. Reconnecting...");
         voiceKeeper.connect(true);
       }
       return;
     }
 
     if (newState.channelId !== config.channelId) {
-      console.warn(
-        `[Voice State] Bot was moved to channel ${newState.channelId} (expected ${config.channelId}). Re-joining target channel immediately...`
-      );
+      console.warn("[Voice State] Bot moved. Rejoining target channel...");
       voiceKeeper.connect(true);
     }
   });
 
-  // Gateway shard lifecycle monitoring
   client.on(Events.ShardDisconnect, (event, shardId) => {
-    console.warn(`[Shard ${shardId}] Disconnected from Discord Gateway (code: ${event.code})`);
+    console.warn(`[Shard ${shardId}] Disconnected (code: ${event.code})`);
   });
 
   client.on(Events.ShardReconnecting, (shardId) => {
-    console.log(`[Shard ${shardId}] Reconnecting to Discord Gateway...`);
+    console.log(`[Shard ${shardId}] Reconnecting...`);
   });
 
   client.on(Events.ShardResume, (shardId, replayedEvents) => {
-    console.log(
-      `[Shard ${shardId}] Resumed Gateway session (replayed ${replayedEvents} events). Checking voice connection...`
-    );
-    // Crucial: A Gateway resume does NOT drop the voice connection!
-    // Only reconnect if the voice socket was actually lost or disrupted.
+    console.log(`[Shard ${shardId}] Resumed. Checking voice connection...`);
+
     const existingConn = getVoiceConnection(config.guildId);
+
     if (!existingConn || existingConn.state.status !== VoiceConnectionStatus.Ready) {
-      console.warn(
-        `[Shard ${shardId}] Voice connection was affected by gateway reconnect. Re-establishing...`
-      );
       voiceKeeper.connect(true);
-    } else {
-      console.log(
-        `[Shard ${shardId}] Voice connection remained completely stable during gateway resume. No interruption needed.`
-      );
     }
   });
 
   client.on(Events.ShardError, (error, shardId) => {
-    console.error(`[Shard ${shardId}] Gateway socket error:`, error);
+    console.error(`[Shard ${shardId}] Gateway error:`, error);
   });
 
-  // Anti-crash handlers to ensure process never exits unexpectedly during 100+ hour calls
   process.on("unhandledRejection", (reason) => {
-    console.error("[Anti-Crash] Unhandled Promise Rejection:", reason);
+    console.error("[Anti-Crash] Unhandled rejection:", reason);
   });
 
   process.on("uncaughtException", (error) => {
-    console.error("[Anti-Crash] Uncaught Exception thrown:", error);
+    console.error("[Anti-Crash] Uncaught exception:", error);
   });
 
-  // Graceful shutdown handling
   const shutdown = () => {
-    console.log("\n[App] Shutting down gracefully...");
+    console.log("\n[App] Shutting down...");
     voiceKeeper.stop();
-    server.close(() => {
-      console.log("[App] HTTP server closed.");
-    });
+    server.close();
     client.destroy();
     process.exit(0);
   };
@@ -124,14 +102,12 @@ async function main() {
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 
-  // Log in to Discord
-  console.log("[Bot] Logging in to Discord Gateway...");
+  console.log("[Bot] Logging in to Discord...");
+
   try {
     await client.login(config.token);
   } catch (error: any) {
-    console.error("\n❌ FAILED TO LOG IN TO DISCORD:");
-    console.error(error?.message || error);
-    console.error("\nPlease ensure your DISCORD_TOKEN is valid and reset it if necessary.\n");
+    console.error("FAILED TO LOG IN:", error?.message || error);
     process.exit(1);
   }
 }
