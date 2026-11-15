@@ -6,7 +6,7 @@ import { startHttpServer } from "./server";
 
 async function main() {
   console.log("\n=======================================================");
-  console.log("  🚀 Starting Discord Call Keeper (24/7 Voice Sustainer)");
+  console.log("  Starting Discord Call Keeper");
   console.log("=======================================================\n");
 
   const config = loadConfig();
@@ -20,17 +20,26 @@ async function main() {
     ],
   });
 
-  // Historial de conversaciones de Gemini
   const geminiHistory = new Map<string, any[]>();
 
-  // Sistema de respuestas de IA
+  // Sistema de inteligencia artificial
   client.on(Events.MessageCreate, async (message) => {
+    console.log(
+      "[CHAT TEST] Mensaje recibido. Canal:",
+      message.channelId,
+      "| Canal configurado:",
+      process.env.TEXT_CHANNEL_ID
+    );
+
     if (message.author.bot) return;
     if (message.guildId !== config.guildId) return;
     if (message.channelId !== process.env.TEXT_CHANNEL_ID) return;
 
     const botId = client.user?.id;
+
     if (!botId || !message.mentions.users.has(botId)) return;
+
+    console.log("[CHAT] Mención detectada. Procesando...");
 
     const prompt = message.content
       .replace(new RegExp(`<@!?${botId}>`, "g"), "")
@@ -44,7 +53,7 @@ async function main() {
     const apiKey = process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
-      console.error("[Gemini] Falta GEMINI_API_KEY en Render.");
+      console.error("[Gemini] Falta GEMINI_API_KEY.");
       await message.reply("No tengo configurada mi inteligencia artificial.");
       return;
     }
@@ -65,7 +74,7 @@ async function main() {
           body: JSON.stringify({
             system_instruction: {
               parts: [{
-                text: "Eres Call Keeper, un bot de Discord con personalidad amigable, divertida y natural. Habla español, conversa como un compañero de servidor, usa humor cuando encaje y responde sin sonar robótico. No finjas ser una persona real."
+                text: "Eres Call Keeper, un bot de Discord amigable, divertido y natural. Habla español, conversa como un compañero de servidor y utiliza humor cuando encaje. No finjas ser una persona real."
               }]
             },
             contents: [
@@ -84,7 +93,7 @@ async function main() {
         console.error("[Gemini] Error:", response.status, errorText);
 
         await message.reply(
-          "Tuve un problema conectándome con Gemini. Inténtalo otra vez."
+          "Tengo un problema conectándome con Gemini. Inténtalo otra vez."
         );
         return;
       }
@@ -97,6 +106,7 @@ async function main() {
         .trim();
 
       if (!answer) {
+        console.error("[Gemini] Respuesta vacía:", JSON.stringify(data));
         await message.reply("No pude generar una respuesta esta vez.");
         return;
       }
@@ -113,11 +123,11 @@ async function main() {
         allowedMentions: { repliedUser: false }
       });
 
+      console.log("[Gemini] Respuesta enviada correctamente.");
+
     } catch (error) {
       console.error("[Gemini] Error:", error);
-      await message.reply(
-        "Se me complicó responder. Inténtalo de nuevo."
-      );
+      await message.reply("Se me complicó responder. Inténtalo otra vez.");
     }
   });
 
@@ -127,22 +137,16 @@ async function main() {
     config.channelId
   );
 
-  const server = startHttpServer(
-    config.port,
-    client,
-    voiceKeeper
-  );
+  const server = startHttpServer(config.port, client, voiceKeeper);
 
   client.once(Events.ClientReady, async (readyClient) => {
     console.log(`[Bot] Logged in as ${readyClient.user.tag}!`);
 
     readyClient.user.setPresence({
-      activities: [
-        {
-          name: "Sustaining Call 24/7 🟢",
-          type: ActivityType.Custom,
-        },
-      ],
+      activities: [{
+        name: "Sustaining Call 24/7",
+        type: ActivityType.Custom,
+      }],
       status: "online",
     });
 
@@ -186,10 +190,6 @@ async function main() {
     if (!existingConn || existingConn.state.status !== VoiceConnectionStatus.Ready) {
       voiceKeeper.connect(true);
     }
-  });
-
-  client.on(Events.ShardError, (error, shardId) => {
-    console.error(`[Shard ${shardId}] Gateway error:`, error);
   });
 
   process.on("unhandledRejection", (reason) => {
