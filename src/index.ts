@@ -1,4 +1,3 @@
-
 import { Client, GatewayIntentBits, ActivityType, Events } from "discord.js";
 import { getVoiceConnection, VoiceConnectionStatus } from "@discordjs/voice";
 import { loadConfig } from "./config";
@@ -21,8 +20,118 @@ async function main() {
     ],
   });
 
-  const voiceKeeper = new VoiceCallKeeper(client, config.guildId, config.channelId);
-  const server = startHttpServer(config.port, client, voiceKeeper);
+  // Historial de conversaciones de Gemini
+  const geminiHistory = new Map<string, any[]>();
+
+  // Sistema de respuestas de IA
+  client.on(Events.MessageCreate, async (message) => {
+    if (message.author.bot) return;
+    if (message.guildId !== config.guildId) return;
+    if (message.channelId !== process.env.TEXT_CHANNEL_ID) return;
+
+    const botId = client.user?.id;
+    if (!botId || !message.mentions.users.has(botId)) return;
+
+    const prompt = message.content
+      .replace(new RegExp(`<@!?${botId}>`, "g"), "")
+      .trim();
+
+    if (!prompt) {
+      await message.reply("¡Dime algo! 😎");
+      return;
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+
+    if (!apiKey) {
+      console.error("[Gemini] Falta GEMINI_API_KEY en Render.");
+      await message.reply("No tengo configurada mi inteligencia artificial.");
+      return;
+    }
+
+    try {
+      await message.channel.sendTyping();
+
+      const history = geminiHistory.get(message.author.id) || [];
+
+      const response = await fetch(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": apiKey,
+          },
+          body: JSON.stringify({
+            system_instruction: {
+              parts: [{
+                text: "Eres Call Keeper, un bot de Discord con personalidad amigable, divertida y natural. Habla español, conversa como un compañero de servidor, usa humor cuando encaje y responde sin sonar robótico. No finjas ser una persona real."
+              }]
+            },
+            contents: [
+              ...history,
+              { role: "user", parts: [{ text: prompt }] }
+            ],
+            generationConfig: {
+              maxOutputTokens: 500
+            }
+          })
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("[Gemini] Error:", response.status, errorText);
+
+        await message.reply(
+          "Tuve un problema conectándome con Gemini. Inténtalo otra vez."
+        );
+        return;
+      }
+
+      const data: any = await response.json();
+
+      const answer = data.candidates?.[0]?.content?.parts
+        ?.map((part: any) => part.text || "")
+        .join("")
+        .trim();
+
+      if (!answer) {
+        await message.reply("No pude generar una respuesta esta vez.");
+        return;
+      }
+
+      history.push(
+        { role: "user", parts: [{ text: prompt }] },
+        { role: "model", parts: [{ text: answer }] }
+      );
+
+      geminiHistory.set(message.author.id, history.slice(-10));
+
+      await message.reply({
+        content: answer.slice(0, 1900),
+        allowedMentions: { repliedUser: false }
+      });
+
+    } catch (error) {
+      console.error("[Gemini] Error:", error);
+      await message.reply(
+        "Se me complicó responder. Inténtalo de nuevo."
+      );
+    }
+  });
+
+  const voiceKeeper = new VoiceCallKeeper(
+    client,
+    config.guildId,
+    config.channelId
+  );
+
+  const server = startHttpServer(
+    config.port,
+    client,
+    voiceKeeper
+  );
 
   client.once(Events.ClientReady, async (readyClient) => {
     console.log(`[Bot] Logged in as ${readyClient.user.tag}!`);
