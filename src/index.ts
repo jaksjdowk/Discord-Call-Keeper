@@ -1,5 +1,16 @@
-import { Client, GatewayIntentBits, ActivityType, Events } from "discord.js";
-import { getVoiceConnection, VoiceConnectionStatus } from "@discordjs/voice";
+
+import {
+  Client,
+  GatewayIntentBits,
+  ActivityType,
+  Events
+} from "discord.js";
+
+import {
+  getVoiceConnection,
+  VoiceConnectionStatus
+} from "@discordjs/voice";
+
 import { loadConfig } from "./config";
 import { VoiceCallKeeper } from "./voice";
 import { startHttpServer } from "./server";
@@ -22,21 +33,17 @@ async function main() {
 
   const geminiHistory = new Map<string, any[]>();
 
-  // Sistema de inteligencia artificial
+  // SISTEMA DE IA DE GEMINI
   client.on(Events.MessageCreate, async (message) => {
-    console.log(
-      "[CHAT TEST] Mensaje recibido. Canal:",
-      message.channelId,
-      "| Canal configurado:",
-      process.env.TEXT_CHANNEL_ID
-    );
+    console.log("[CHAT TEST] Mensaje recibido:", message.content);
 
     if (message.author.bot) return;
     if (message.guildId !== config.guildId) return;
-    if (!message.mentions.users.has(client.user!.id)) return;
+
     const botId = client.user?.id;
 
-    if (!botId || !message.mentions.users.has(botId)) return;
+    if (!botId) return;
+    if (!message.mentions.users.has(botId)) return;
 
     console.log("[CHAT] Mención detectada. Procesando...");
 
@@ -63,7 +70,7 @@ async function main() {
       const history = geminiHistory.get(message.author.id) || [];
 
       const response = await fetch(
-        https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
         {
           method: "POST",
           headers: {
@@ -72,13 +79,18 @@ async function main() {
           },
           body: JSON.stringify({
             system_instruction: {
-              parts: [{
-                text: "Eres Call Keeper, un bot de Discord amigable, divertido y natural. Habla español, conversa como un compañero de servidor y utiliza humor cuando encaje. No finjas ser una persona real."
-              }]
+              parts: [
+                {
+                  text: "Eres Chimimiii, un bot de Discord amigable, divertido y natural. Habla español, conversa como un compañero de servidor y utiliza humor cuando encaje. No finjas ser una persona real."
+                }
+              ]
             },
             contents: [
               ...history,
-              { role: "user", parts: [{ text: prompt }] }
+              {
+                role: "user",
+                parts: [{ text: prompt }]
+              }
             ],
             generationConfig: {
               maxOutputTokens: 500
@@ -89,11 +101,17 @@ async function main() {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error("[Gemini] Error:", response.status, errorText);
+
+        console.error(
+          "[Gemini] Error HTTP:",
+          response.status,
+          errorText
+        );
 
         await message.reply(
-          "Tengo un problema conectándome con Gemini. Inténtalo otra vez."
+          `Tengo un problema con Gemini (error ${response.status}).`
         );
+
         return;
       }
 
@@ -106,7 +124,11 @@ async function main() {
 
       if (!answer) {
         console.error("[Gemini] Respuesta vacía:", JSON.stringify(data));
-        await message.reply("No pude generar una respuesta esta vez.");
+
+        await message.reply(
+          "No pude generar una respuesta esta vez."
+        );
+
         return;
       }
 
@@ -115,28 +137,41 @@ async function main() {
         { role: "model", parts: [{ text: answer }] }
       );
 
-      geminiHistory.set(message.author.id, history.slice(-10));
+      geminiHistory.set(
+        message.author.id,
+        history.slice(-10)
+      );
 
       await message.reply({
         content: answer.slice(0, 1900),
-        allowedMentions: { repliedUser: false }
+        allowedMentions: {
+          repliedUser: false
+        }
       });
 
       console.log("[Gemini] Respuesta enviada correctamente.");
 
     } catch (error) {
       console.error("[Gemini] Error:", error);
-      await message.reply("Se me complicó responder. Inténtalo otra vez.");
+
+      await message.reply(
+        "Se me complicó responder. Inténtalo otra vez."
+      );
     }
   });
 
+  // SISTEMA DE LLAMADAS
   const voiceKeeper = new VoiceCallKeeper(
     client,
     config.guildId,
     config.channelId
   );
 
-  const server = startHttpServer(config.port, client, voiceKeeper);
+  const server = startHttpServer(
+    config.port,
+    client,
+    voiceKeeper
+  );
 
   client.once(Events.ClientReady, async (readyClient) => {
     console.log(`[Bot] Logged in as ${readyClient.user.tag}!`);
@@ -186,7 +221,10 @@ async function main() {
 
     const existingConn = getVoiceConnection(config.guildId);
 
-    if (!existingConn || existingConn.state.status !== VoiceConnectionStatus.Ready) {
+    if (
+      !existingConn ||
+      existingConn.state.status !== VoiceConnectionStatus.Ready
+    ) {
       voiceKeeper.connect(true);
     }
   });
@@ -201,9 +239,11 @@ async function main() {
 
   const shutdown = () => {
     console.log("\n[App] Shutting down...");
+
     voiceKeeper.stop();
     server.close();
     client.destroy();
+
     process.exit(0);
   };
 
@@ -215,7 +255,11 @@ async function main() {
   try {
     await client.login(config.token);
   } catch (error: any) {
-    console.error("FAILED TO LOG IN:", error?.message || error);
+    console.error(
+      "FAILED TO LOG IN:",
+      error?.message || error
+    );
+
     process.exit(1);
   }
 }
