@@ -52,7 +52,7 @@ async function main() {
       .trim();
 
     if (!prompt) {
-      await message.reply("¡Dime algo! 😎");
+      await message.reply("¡soy chimimi perra!");
       return;
     }
 
@@ -93,7 +93,7 @@ async function main() {
               }
             ],
             generationConfig: {
-              maxOutputTokens: 500
+              maxOutputTokens: 8192
             }
           })
         }
