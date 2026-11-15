@@ -33,7 +33,7 @@ async function main() {
 
     if (message.author.bot) return;
     if (message.guildId !== config.guildId) return;
-    if (message.channelId !== process.env.TEXT_CHANNEL_ID) return;
+    if (!message.isTextBased() || !message.mentions.users.has(client.user!.id)) return;
 
     const botId = client.user?.id;
 
